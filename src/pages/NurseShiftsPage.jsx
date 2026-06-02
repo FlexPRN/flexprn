@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   LogOut, ArrowLeft, Calendar, Clock, DollarSign, MapPin,
-  Building2, CheckCircle2, AlertCircle, Award, Mail, Eye
+  Building2, CheckCircle2, AlertCircle, Eye
 } from 'lucide-react'
 import { useAuth } from '../useAuth'
 import { supabase } from '../supabaseClient'
@@ -12,7 +12,6 @@ function NurseShiftsPage() {
   const { user, profile, loading, signOut } = useAuth()
   const [shifts, setShifts] = useState([])
   const [myAcceptedShifts, setMyAcceptedShifts] = useState([])
-  const [invites, setInvites] = useState([])
   const [approvedFacilities, setApprovedFacilities] = useState([])
   const [activeTab, setActiveTab] = useState('available')
   const [filterRole, setFilterRole] = useState('all')
@@ -29,7 +28,6 @@ function NurseShiftsPage() {
     }
     if (profile) {
       loadApprovedFacilities()
-      loadInvites()
       loadProfileCompleteness()
     }
   }, [user, profile, loading])
@@ -69,11 +67,6 @@ function NurseShiftsPage() {
   async function loadApprovedFacilities() {
     const { data } = await supabase.from('float_pool').select('facility_id').eq('nurse_id', profile.id).eq('status', 'approved')
     setApprovedFacilities((data || []).map(d => d.facility_id))
-  }
-
-  async function loadInvites() {
-    const { data } = await supabase.from('recruitment_invites').select('*, facilities(facility_name, facility_type, city, state)').eq('nurse_id', profile.id).eq('status', 'pending')
-    setInvites(data || [])
   }
 
   async function loadShifts() {
@@ -187,21 +180,6 @@ function NurseShiftsPage() {
     loadShifts()
   }
 
-  async function respondToInvite(inviteId, accepted) {
-    const invite = invites.find(i => i.id === inviteId)
-    const { error } = await supabase.from('recruitment_invites').update({ status: accepted ? 'accepted' : 'declined', responded_at: new Date().toISOString() }).eq('id', inviteId)
-    if (error) { alert('Error: ' + error.message); return }
-    if (accepted) {
-      await supabase.from('float_pool').insert({ nurse_id: profile.id, facility_id: invite.facility_id, status: 'approved', reviewed_at: new Date().toISOString() })
-      setMessage(`✓ Joined ${invite.facilities.facility_name}'s float pool!`)
-    } else {
-      setMessage('Invitation declined.')
-    }
-    loadInvites()
-    loadApprovedFacilities()
-    setTimeout(() => setMessage(''), 4000)
-  }
-
   const filteredShifts = shifts.filter(s => {
     if (filterRole !== 'all' && s.required_role !== filterRole) return false
     if (filterUrgency !== 'all' && s.urgency !== filterUrgency) return false
@@ -229,7 +207,7 @@ function NurseShiftsPage() {
         <div className="profile-header">
           <div>
             <h1>Shifts</h1>
-            <p className="dash-subtitle">Browse available shifts and respond to invites</p>
+            <p className="dash-subtitle">Browse available shifts and manage your accepted ones</p>
           </div>
         </div>
 
@@ -261,9 +239,6 @@ function NurseShiftsPage() {
           </button>
           <button className={activeTab === 'mine' ? 'tab active' : 'tab'} onClick={() => setActiveTab('mine')}>
             <CheckCircle2 size={16} /> My Shifts ({myAcceptedShifts.length})
-          </button>
-          <button className={activeTab === 'invites' ? 'tab active' : 'tab'} onClick={() => setActiveTab('invites')}>
-            <Mail size={16} /> Invites ({invites.length})
           </button>
         </div>
 
@@ -348,29 +323,6 @@ function NurseShiftsPage() {
                       {(shift.status === 'filled' || shift.status === 'in_progress') && (
                         <button className="deny-btn small-btn" onClick={() => cancelMyShift(shift)}>Cancel Shift</button>
                       )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'invites' && (
-          <div className="profile-section">
-            <h2>Recruitment Invitations</h2>
-            {invites.length === 0 ? <p className="empty-state">No pending invitations.</p> : (
-              <div className="shift-list">
-                {invites.map(invite => (
-                  <div key={invite.id} className="shift-card-detailed">
-                    <div className="shift-detail-info">
-                      <div className="shift-detail-header"><h3>{invite.facilities?.facility_name}</h3><span className="role-badge">{invite.facilities?.facility_type}</span></div>
-                      <p className="shift-detail-meta"><MapPin size={14} style={{ display: 'inline', verticalAlign: 'middle' }} /> {invite.facilities?.city}, {invite.facilities?.state}</p>
-                      {invite.message && <div className="shift-notes" style={{ marginTop: '1rem' }}><strong>Message:</strong><p style={{ marginTop: '0.5rem' }}>{invite.message}</p></div>}
-                    </div>
-                    <div className="shift-accept-action" style={{ flexDirection: 'column', gap: '0.5rem' }}>
-                      <button className="primary-btn" onClick={() => respondToInvite(invite.id, true)}>Accept</button>
-                      <button className="secondary-btn" onClick={() => respondToInvite(invite.id, false)}>Decline</button>
                     </div>
                   </div>
                 ))}

@@ -10,6 +10,7 @@ import ResetPasswordPage from './pages/ResetPasswordPage'
 import NurseDashboardPage from './pages/NurseDashboardPage'
 import NurseProfilePage from './pages/NurseProfilePage'
 import NurseShiftsPage from './pages/NurseShiftsPage'
+import NurseInvitesPage from './pages/NurseInvitesPage'
 import FacilityDashboardPage from './pages/FacilityDashboardPage'
 import FacilityProfilePage from './pages/FacilityProfilePage'
 import NursePoolDetailPage from './pages/NursePoolDetailPage'
@@ -32,6 +33,7 @@ function App() {
       <Route path="/nurse/dashboard" element={<NurseDashboardPage />} />
       <Route path="/nurse/profile" element={<NurseProfilePage />} />
       <Route path="/nurse/shifts" element={<NurseShiftsPage />} />
+      <Route path="/nurse/invites" element={<NurseInvitesPage />} />
       <Route path="/facility/dashboard" element={<FacilityDashboardPage />} />
       <Route path="/facility/profile" element={<FacilityProfilePage />} />
       <Route path="/facility/nurse/:nurseId" element={<NursePoolDetailPage />} />

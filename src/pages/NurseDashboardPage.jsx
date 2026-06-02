@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LogOut, User, Award, TrendingUp, Building2, Calendar, Star, Clock, Settings } from 'lucide-react'
+import { LogOut, User, Award, TrendingUp, Building2, Calendar, Star, Clock, Settings, Mail } from 'lucide-react'
 import { useAuth } from '../useAuth'
 import { supabase } from '../supabaseClient'
 
@@ -11,6 +11,7 @@ function NurseDashboardPage() {
   const [myPools, setMyPools] = useState([])
   const [openShifts, setOpenShifts] = useState([])
   const [myShifts, setMyShifts] = useState([])
+  const [pendingInvitesCount, setPendingInvitesCount] = useState(0)
 
   useEffect(() => {
     if (!loading && (!user || !profile)) {
@@ -21,6 +22,7 @@ function NurseDashboardPage() {
       loadMyPools()
       loadAvailableShifts()
       loadMyShifts()
+      loadPendingInvitesCount()
     }
   }, [user, profile, loading])
 
@@ -32,6 +34,15 @@ function NurseDashboardPage() {
   async function loadMyPools() {
     const { data } = await supabase.from('float_pool').select('*, facilities(facility_name, city, state)').eq('nurse_id', profile.id)
     setMyPools(data || [])
+  }
+
+  async function loadPendingInvitesCount() {
+    const { data } = await supabase
+      .from('recruitment_invites')
+      .select('id')
+      .eq('nurse_id', profile.id)
+      .eq('status', 'pending')
+    setPendingInvitesCount((data || []).length)
   }
 
   async function loadAvailableShifts() {
@@ -101,6 +112,27 @@ function NurseDashboardPage() {
           <nav>
             <a href="#overview" className="active"><User size={18} /> Overview</a>
             <a href="/nurse/shifts"><Calendar size={18} /> Browse Shifts</a>
+            <a href="/nurse/invites" style={{ position: 'relative' }}>
+              <Mail size={18} /> Invites
+              {pendingInvitesCount > 0 && (
+                <span style={{
+                  position: 'absolute',
+                  top: '50%',
+                  right: '0.75rem',
+                  transform: 'translateY(-50%)',
+                  background: '#DC2626',
+                  color: 'white',
+                  borderRadius: '999px',
+                  padding: '0.1rem 0.5rem',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  minWidth: '1.5rem',
+                  textAlign: 'center'
+                }}>
+                  {pendingInvitesCount}
+                </span>
+              )}
+            </a>
             <a href="#pools"><Building2 size={18} /> My Float Pools</a>
             <a href="#facilities"><Building2 size={18} /> Find Facilities</a>
             <a href="/nurse/profile" style={{ color: '#0A7E8C', fontWeight: 600 }}><Settings size={18} /> Edit My Profile</a>
@@ -135,6 +167,23 @@ function NurseDashboardPage() {
               </div>
             </div>
           </section>
+
+          {pendingInvitesCount > 0 && (
+            <section className="dash-section" style={{ background: 'linear-gradient(135deg, #FEF9F0 0%, #FDF6E3 100%)', border: '2px solid #FBBF24', borderRadius: '10px' }}>
+              <div className="section-head">
+                <h2 style={{ color: '#92400E', margin: 0 }}>
+                  <Mail size={22} style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />
+                  You have {pendingInvitesCount} pending invitation{pendingInvitesCount > 1 ? 's' : ''}!
+                </h2>
+                <button className="primary-btn" onClick={() => navigate('/nurse/invites')}>
+                  View Invitations
+                </button>
+              </div>
+              <p style={{ color: '#92400E', margin: '0.5rem 0 0', fontSize: '0.95rem' }}>
+                Facilities have invited you to their float pool. Accept to start receiving shift offers.
+              </p>
+            </section>
+          )}
 
           {myShifts.length > 0 && (
             <section className="dash-section">

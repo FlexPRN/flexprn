@@ -2,6 +2,22 @@
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN
 
+const STATE_NAMES = {
+  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas',
+  CA: 'California', CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware',
+  FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho',
+  IL: 'Illinois', IN: 'Indiana', IA: 'Iowa', KS: 'Kansas',
+  KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland',
+  MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi',
+  MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada',
+  NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York',
+  NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma',
+  OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina',
+  SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah',
+  VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia',
+  WI: 'Wisconsin', WY: 'Wyoming', DC: 'District of Columbia'
+}
+
 // Get autocomplete suggestions as user types
 export async function searchAddresses(query) {
   if (!query || query.length < 3) return []
@@ -53,6 +69,93 @@ export function parseAddressContext(suggestion) {
   return result
 }
 
+// ============================================
+// FORWARD GEOCODING — for manually-entered addresses
+// Tries: full address → ZIP → city+state → state alone
+// Returns { latitude, longitude, accuracy } where accuracy = 'exact' | 'city' | 'state' | null
+// ============================================
+export async function forwardGeocode(streetAddress, city, state, zip) {
+  if (!MAPBOX_TOKEN) {
+    console.error('VITE_MAPBOX_TOKEN missing from .env.local')
+    return { latitude: null, longitude: null, accuracy: null }
+  }
+
+  const stateUpper = state?.toUpperCase()
+  const stateFullName = STATE_NAMES[stateUpper] || state
+
+  console.log('🌍 Forward geocoding:', { streetAddress, city, state, zip })
+
+  // Try 1: Full address with full state name (no type filter — let Mapbox decide)
+  if (streetAddress && city && state) {
+    const fullQuery = `${streetAddress}, ${city}, ${stateFullName} ${zip || ''}`.trim()
+    const result = await tryGeocode(fullQuery, null)
+    if (result) {
+      console.log('✓ Geocoded at exact level')
+      return { ...result, accuracy: 'exact' }
+    }
+  }
+
+  // Try 2: ZIP code alone (very reliable for US)
+  if (zip) {
+    const result = await tryGeocode(zip, ['postcode'])
+    if (result) {
+      console.log('✓ Geocoded at ZIP level')
+      return { ...result, accuracy: 'city' }
+    }
+  }
+
+  // Try 3: City + State full name
+  if (city && state) {
+    const cityQuery = `${city}, ${stateFullName}`
+    const result = await tryGeocode(cityQuery, ['place'])
+    if (result) {
+      console.log('✓ Geocoded at city level')
+      return { ...result, accuracy: 'city' }
+    }
+  }
+
+  // Try 4: State only (last resort, full name)
+  if (state) {
+    const result = await tryGeocode(stateFullName, ['region'])
+    if (result) {
+      console.log('✓ Geocoded at state level')
+      return { ...result, accuracy: 'state' }
+    }
+  }
+
+  console.error('✗ All geocoding attempts failed')
+  return { latitude: null, longitude: null, accuracy: null }
+}
+
+async function tryGeocode(query, types) {
+  if (!query) return null
+  const encoded = encodeURIComponent(query)
+  const typesParam = types && types.length > 0 ? `&types=${types.join(',')}` : ''
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${MAPBOX_TOKEN}&country=US${typesParam}&limit=1`
+
+  try {
+    const response = await fetch(url)
+    if (!response.ok) {
+      console.warn(`Geocode HTTP ${response.status} for: "${query}"`)
+      return null
+    }
+    const data = await response.json()
+    if (!data.features || data.features.length === 0) {
+      console.log(`  No results for: "${query}"`)
+      return null
+    }
+
+    const feature = data.features[0]
+    return {
+      latitude: feature.center[1],
+      longitude: feature.center[0]
+    }
+  } catch (err) {
+    console.error('Geocoding error:', err)
+    return null
+  }
+}
+
 // Calculate distance in meters between two GPS coordinates (Haversine)
 export function distanceInMeters(lat1, lon1, lat2, lon2) {
   const R = 6371000
@@ -97,4 +200,15 @@ export function formatDistance(meters) {
   return `${(meters / 1000).toFixed(2)}km`
 }
 
+// ============================================
+// CLOCK-IN DISTANCE LIMITS by address verification accuracy
+// ============================================
 export const MAX_CLOCK_DISTANCE_METERS = 150
+export const CLOCK_DISTANCE_CITY_LEVEL = 500
+export const CLOCK_DISTANCE_STATE_LEVEL = 2000
+
+export function getClockInRadius(accuracy) {
+  if (accuracy === 'city') return CLOCK_DISTANCE_CITY_LEVEL
+  if (accuracy === 'state') return CLOCK_DISTANCE_STATE_LEVEL
+  return MAX_CLOCK_DISTANCE_METERS
+}

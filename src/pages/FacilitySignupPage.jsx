@@ -1,16 +1,17 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
-import { ArrowRight, Building2, ArrowLeft, FileCheck, Shield, DollarSign, BookOpen } from 'lucide-react'
+import { ArrowRight, Building2, ArrowLeft, FileCheck, Shield, DollarSign, BookOpen, MapPin, Edit, CheckCircle2 } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 import Header from '../components/Header'
 import Footer from '../components/Footer'
+import AddressAutocomplete from '../components/AddressAutocomplete'
 
 const FACILITY_AGREEMENTS = [
   {
     key: 'msa',
     title: 'Master Service Agreement',
     icon: FileCheck,
-    summary: 'Governs the staffing relationship between your facility and Flexprn. Establishes flat $15/hr personnel fee, payment terms (Net 14), and service expectations.'
+    summary: 'Governs the staffing relationship between your facility and Flexprn. Establishes tiered platform fee structure (Standard/Mid/Specialty/Premium) based on role and specialty, Net 7 payment terms via ACH, and service expectations.'
   },
   {
     key: 'terms',
@@ -26,9 +27,9 @@ const FACILITY_AGREEMENTS = [
   },
   {
     key: 'payment_stipulations',
-    title: 'Payment Terms & Conversion Fee Policy',
+    title: 'Payment Terms & Cancellation Policy',
     icon: DollarSign,
-    summary: 'Payment Net 14 days. Guaranteed shift pay obligation: full shift pay if nurse sent home before 50% complete; 2 extra hours if dismissed after 50%. Conversion fees $1,500-$7,500 sliding scale.'
+    summary: 'Payment Net 7 days via ACH. Cancellation policy: if a shift is cancelled before 50% complete, facility pays the full scheduled shift; if cancelled after 50% complete, facility pays hours worked plus 2 hours. Conversion fees $1,500-$7,500 sliding scale.'
   },
   {
     key: 'non_solicitation',
@@ -43,17 +44,39 @@ function FacilitySignupPage() {
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [showAddressEdit, setShowAddressEdit] = useState(true)
   const [formData, setFormData] = useState({
     facilityName: '', facilityType: '', contactFirstName: '', contactLastName: '',
-    title: '', email: '', phone: '', address: '', city: '', state: '', zip: '', password: ''
+    title: '', email: '', phone: '',
+    address: '', city: '', state: '', zip: '',
+    latitude: null, longitude: null,
+    password: ''
   })
   const [agreementsAccepted, setAgreementsAccepted] = useState({})
 
   const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value })
 
+  function handleAddressSelected(addr) {
+    setFormData({
+      ...formData,
+      address: addr.streetAddress,
+      city: addr.city,
+      state: addr.state,
+      zip: addr.zip,
+      latitude: addr.latitude,
+      longitude: addr.longitude
+    })
+    setShowAddressEdit(false)
+    setError('')
+  }
+
   function proceedToAgreements(e) {
     e.preventDefault()
     setError('')
+    if (!formData.latitude || !formData.longitude) {
+      setError('Please search and select your facility address — GPS verification is required.')
+      return
+    }
     setStep(2)
   }
 
@@ -62,6 +85,7 @@ function FacilitySignupPage() {
   }
 
   const allAgreed = FACILITY_AGREEMENTS.every(a => agreementsAccepted[a.key])
+  const addressVerified = !!formData.latitude && !!formData.longitude
 
   const handleFinalSubmit = async (e) => {
     e.preventDefault()
@@ -94,7 +118,10 @@ function FacilitySignupPage() {
         address: formData.address,
         city: formData.city,
         state: formData.state,
-        zip: formData.zip
+        zip: formData.zip,
+        latitude: formData.latitude,
+        longitude: formData.longitude,
+        geocoded_at: new Date().toISOString()
       })
 
       if (profileError) throw profileError
@@ -150,12 +177,72 @@ function FacilitySignupPage() {
                   <option value="other">Other</option>
                 </select>
               </div>
-              <div className="form-field"><label>Address</label><input type="text" name="address" value={formData.address} onChange={handleChange} required /></div>
-              <div className="form-row">
-                <div className="form-field"><label>City</label><input type="text" name="city" value={formData.city} onChange={handleChange} required /></div>
-                <div className="form-field"><label>State</label><input type="text" name="state" placeholder="KY" maxLength={2} value={formData.state} onChange={handleChange} required /></div>
-                <div className="form-field"><label>ZIP</label><input type="text" name="zip" value={formData.zip} onChange={handleChange} required /></div>
-              </div>
+
+              {/* ============ VERIFIED ADDRESS ============ */}
+              <div className="form-section-label">Facility Address</div>
+              <p style={{ color: '#64748B', fontSize: '0.9rem', marginBottom: '0.75rem', marginTop: '-0.5rem' }}>
+                Search your address below — GPS verification is required so nurses can clock in onsite.
+              </p>
+
+              {addressVerified && !showAddressEdit && (
+                <div style={{
+                  background: 'linear-gradient(135deg, #F0F7F9 0%, #E0F4F6 100%)',
+                  border: '2px solid #0A7E8C',
+                  borderRadius: '10px',
+                  padding: '1rem',
+                  marginBottom: '1rem',
+                  display: 'flex',
+                  gap: '0.75rem',
+                  alignItems: 'center'
+                }}>
+                  <div style={{
+                    background: '#0A7E8C',
+                    borderRadius: '50%',
+                    width: '44px',
+                    height: '44px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    color: 'white'
+                  }}>
+                    <CheckCircle2 size={24} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <strong style={{ color: '#0A7E8C', display: 'block', marginBottom: '0.15rem' }}>
+                      ✓ Verified Address
+                    </strong>
+                    <div style={{ color: '#1B3A6B', fontSize: '0.95rem' }}>{formData.address}</div>
+                    <div style={{ color: '#1B3A6B', fontSize: '0.95rem' }}>
+                      {formData.city}, {formData.state} {formData.zip}
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '0.25rem' }}>
+                      GPS: {formData.latitude?.toFixed(6)}, {formData.longitude?.toFixed(6)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    onClick={() => setShowAddressEdit(true)}
+                    style={{ flexShrink: 0 }}
+                  >
+                    <Edit size={14} /> Change
+                  </button>
+                </div>
+              )}
+
+              {(!addressVerified || showAddressEdit) && (
+                <div className="form-field">
+                  <AddressAutocomplete
+                    onSelect={handleAddressSelected}
+                    placeholder="Start typing facility name or street address..."
+                  />
+                  <span className="form-hint" style={{ marginTop: '0.5rem' }}>
+                    Try typing the hospital name (e.g., "Saint Elizabeth Healthcare Falmouth") or street address. Select the matching option from the dropdown.
+                  </span>
+                </div>
+              )}
+              {/* ============ END VERIFIED ADDRESS ============ */}
 
               <div className="form-section-label">Primary Contact</div>
               <div className="form-row">
@@ -169,7 +256,9 @@ function FacilitySignupPage() {
               </div>
               <div className="form-field"><label>Password</label><input type="password" name="password" value={formData.password} onChange={handleChange} required minLength={8} /><span className="form-hint">At least 8 characters</span></div>
 
-              <button type="submit" className="primary-btn submit-btn">Continue to Agreements <ArrowRight size={18} /></button>
+              <button type="submit" className="primary-btn submit-btn" disabled={!addressVerified}>
+                {addressVerified ? 'Continue to Agreements' : 'Verify Address to Continue'} <ArrowRight size={18} />
+              </button>
               <p className="form-footer">Already have an account? <Link to="/signin">Sign in</Link></p>
             </form>
           )}
