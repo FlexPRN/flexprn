@@ -108,6 +108,24 @@ function NurseShiftsPage() {
     await supabase.from('shift_assignments').insert({ shift_id: shift.id, nurse_id: profile.id, status: 'assigned' })
     await supabase.from('nurses').update({ total_shifts_accepted: (profile.total_shifts_accepted || 0) + 1 }).eq('id', profile.id)
 
+    // Notify facility via email
+    const { data: facility } = await supabase
+      .from('facilities')
+      .select('email, facility_name')
+      .eq('id', shift.facility_id)
+      .single()
+
+    if (facility?.email) {
+      const { sendEmail, shiftAcceptedEmail } = await import('../utils/email')
+      const emailContent = shiftAcceptedEmail(
+        `${profile.first_name} ${profile.last_name}`,
+        shift.shift_date,
+        shift.unit,
+        shift.start_time.slice(0,5)
+      )
+      sendEmail(facility.email, emailContent.subject, emailContent.html)
+    }
+
     setMessage('✓ Shift accepted!')
     setAccepting(null)
     loadShifts()
@@ -120,9 +138,8 @@ function NurseShiftsPage() {
     if (!reason) return
 
     const hoursBefore = (new Date(shift.shift_date + 'T' + shift.start_time) - new Date()) / (1000 * 60 * 60)
-    const cancelType = hoursBefore < 2 ? 'late' : hoursBefore < 24 ? 'standard' : 'standard'
+    const cancelType = hoursBefore < 2 ? 'late' : 'standard'
 
-    // Count recent cancellations
     const ninetyDaysAgo = new Date()
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90)
     const { data: recent } = await supabase.from('cancellation_log').select('*').eq('nurse_id', profile.id).gte('cancelled_at', ninetyDaysAgo.toISOString())
@@ -141,7 +158,6 @@ function NurseShiftsPage() {
       suspendUntil = d.toISOString().slice(0,10)
     }
 
-    // Log cancellation
     await supabase.from('cancellation_log').insert({
       shift_id: shift.id,
       nurse_id: profile.id,
@@ -151,7 +167,6 @@ function NurseShiftsPage() {
       penalty_applied: penalty
     })
 
-    // Update nurse
     const updateData = { cancellation_count_90d: count }
     if (suspendUntil) {
       updateData.suspended_until = suspendUntil
@@ -159,7 +174,6 @@ function NurseShiftsPage() {
     }
     await supabase.from('nurses').update(updateData).eq('id', profile.id)
 
-    // Reopen shift
     await supabase.from('shifts').update({ status: 'open', assigned_nurse_id: null, filled_at: null }).eq('id', shift.id)
     await supabase.from('shift_assignments').update({ status: 'cancelled' }).eq('shift_id', shift.id).eq('nurse_id', profile.id)
 

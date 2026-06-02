@@ -3,7 +3,16 @@ import { useNavigate } from 'react-router-dom'
 import { LogOut, Building2, Users, Calendar, Plus, Check, X, Clock, Eye, Settings, Search } from 'lucide-react'
 import { useAuth } from '../useAuth'
 import { supabase } from '../supabaseClient'
-import { SPECIALTIES, CERTS, ROLES, ROLE_PAY_GUIDE } from '../constants/specialties'
+import {
+  SPECIALTIES,
+  CERTS,
+  ROLES,
+  ROLE_PAY_GUIDE,
+  getPlatformFee,
+  getBillRate,
+  getSpecialtyTier,
+  getSpecialtyTierLabel
+} from '../constants/specialties'
 
 function FacilityDashboardPage() {
   const navigate = useNavigate()
@@ -64,6 +73,10 @@ function FacilityDashboardPage() {
     const payRate = parseFloat(shiftForm.nurse_pay_rate)
     const allDates = [shiftForm.shift_date, ...shiftForm.additional_dates.filter(d => d)]
 
+    // Calculate platform fee based on role + specialty + urgency
+    const platformFee = getPlatformFee(shiftForm.required_role, shiftForm.specialty, shiftForm.urgency)
+    const billRate = payRate + platformFee
+
     const toInsert = allDates.map(date => ({
       facility_id: profile.id,
       unit: shiftForm.unit,
@@ -79,8 +92,8 @@ function FacilityDashboardPage() {
       required_certifications: shiftForm.required_certifications,
       preferred_certifications: shiftForm.preferred_certifications,
       nurse_pay_rate: payRate,
-      platform_fee_rate: 15,
-      bill_rate: payRate + 15,
+      platform_fee_rate: platformFee,
+      bill_rate: billRate,
       urgency: shiftForm.urgency,
       backup_nurse_enabled: shiftForm.backup_nurse_enabled,
       break_minutes: shiftForm.break_minutes || 30,
@@ -115,6 +128,22 @@ function FacilityDashboardPage() {
   const completedShifts = shifts.filter(s => s.status === 'completed')
 
   const payGuide = ROLE_PAY_GUIDE[shiftForm.required_role] || { min: 0, max: 100, typical: 0 }
+
+  // Live pricing calculations for the form preview
+  const livePlatformFee = getPlatformFee(shiftForm.required_role, shiftForm.specialty, shiftForm.urgency)
+  const livePayRate = parseFloat(shiftForm.nurse_pay_rate) || 0
+  const liveBillRate = livePayRate + livePlatformFee
+  const liveTier = shiftForm.specialty ? getSpecialtyTier(shiftForm.specialty) : null
+  const liveTierLabel = shiftForm.specialty ? getSpecialtyTierLabel(shiftForm.specialty) : null
+
+  // Estimate shift duration for total cost preview
+  let liveHours = 0
+  if (shiftForm.start_time && shiftForm.end_time) {
+    const s = new Date(`2000-01-01T${shiftForm.start_time}`)
+    const e = new Date(`2000-01-01T${shiftForm.end_time}`)
+    liveHours = (e - s) / (1000 * 60 * 60)
+    if (liveHours <= 0) liveHours += 24
+  }
 
   return (
     <div className="dashboard">
@@ -191,7 +220,9 @@ function FacilityDashboardPage() {
                   <div className="form-field">
                     <label>Urgency</label>
                     <select value={shiftForm.urgency} onChange={(e) => setShiftForm({...shiftForm, urgency: e.target.value})}>
-                      <option value="standard">Standard</option><option value="urgent">Urgent</option><option value="critical">Critical/Stat</option>
+                      <option value="standard">Standard (&gt;48 hr notice)</option>
+                      <option value="urgent">Urgent (&lt;48 hr) — +$2/hr</option>
+                      <option value="critical">Critical/Stat (&lt;24 hr) — +$4/hr</option>
                     </select>
                   </div>
                 </div>
@@ -233,10 +264,83 @@ function FacilityDashboardPage() {
                   <label>Nurse Pay Rate ($/hour) *</label>
                   <input type="number" step="0.50" placeholder={`Typical ${shiftForm.required_role}: $${payGuide.typical}/hr`} value={shiftForm.nurse_pay_rate} onChange={(e) => setShiftForm({...shiftForm, nurse_pay_rate: e.target.value})} required />
                   <span className="form-hint">
-                    Suggested {shiftForm.required_role} range: ${payGuide.min}-${payGuide.max}/hr.
-                    Bill rate: ${parseFloat(shiftForm.nurse_pay_rate || 0) + 15}/hr (includes $15/hr platform fee)
+                    Suggested {shiftForm.required_role} range: ${payGuide.min}-${payGuide.max}/hr
                   </span>
                 </div>
+
+                {/* ============ LIVE PRICING BREAKDOWN ============ */}
+                {shiftForm.specialty && shiftForm.required_role && (
+                  <div style={{
+                    background: '#f0f7f8',
+                    border: '2px solid #0A7E8C',
+                    borderRadius: '8px',
+                    padding: '1.25rem',
+                    marginTop: '1rem',
+                    marginBottom: '1rem'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                      <h4 style={{ color: '#1B3A6B', margin: 0, fontSize: '1.05rem' }}>💰 Your Pricing Breakdown</h4>
+                      <span style={{
+                        background: liveTier === 'PREMIUM' ? '#1B3A6B' :
+                                    liveTier === 'SPECIALTY' ? '#0A7E8C' :
+                                    liveTier === 'MID' ? '#15803D' : '#6b7280',
+                        color: 'white',
+                        padding: '0.25rem 0.75rem',
+                        borderRadius: '12px',
+                        fontSize: '0.8rem',
+                        fontWeight: 600
+                      }}>
+                        {liveTierLabel} Tier
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'grid', gap: '0.4rem', fontSize: '0.95rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Nurse pay rate:</span>
+                        <strong>${livePayRate.toFixed(2)}/hr</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#0A7E8C' }}>
+                        <span>
+                          Flexprn platform fee
+                          {shiftForm.urgency === 'urgent' && ' (incl. +$2 urgent)'}
+                          {shiftForm.urgency === 'critical' && ' (incl. +$4 critical)'}:
+                        </span>
+                        <strong>+${livePlatformFee.toFixed(2)}/hr</strong>
+                      </div>
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        borderTop: '1px solid #0A7E8C',
+                        paddingTop: '0.5rem',
+                        marginTop: '0.25rem',
+                        fontSize: '1.05rem',
+                        color: '#1B3A6B'
+                      }}>
+                        <span><strong>Your total bill rate:</strong></span>
+                        <strong>${liveBillRate.toFixed(2)}/hr</strong>
+                      </div>
+                      {liveHours > 0 && livePayRate > 0 && (
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          marginTop: '0.5rem',
+                          padding: '0.5rem',
+                          background: 'white',
+                          borderRadius: '6px',
+                          fontSize: '0.95rem'
+                        }}>
+                          <span>Total for one {liveHours}-hr shift:</span>
+                          <strong style={{ color: '#1B3A6B' }}>${(liveBillRate * liveHours).toFixed(2)}</strong>
+                        </div>
+                      )}
+                    </div>
+
+                    <p style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '0.75rem', marginBottom: 0, fontStyle: 'italic' }}>
+                      Traditional agencies typically mark up 50-100%. Flexprn's flat-fee model saves you money on every shift.
+                    </p>
+                  </div>
+                )}
+                {/* ============ END PRICING BREAKDOWN ============ */}
 
                 <h3 style={{ color: '#1B3A6B', marginTop: '1.5rem', marginBottom: '1rem' }}>Onsite Details</h3>
                 <div className="form-field"><label>Unit Supervisor</label><input type="text" placeholder="e.g., Sarah Johnson, RN — Charge Nurse" value={shiftForm.unit_supervisor} onChange={(e) => setShiftForm({...shiftForm, unit_supervisor: e.target.value})} /></div>

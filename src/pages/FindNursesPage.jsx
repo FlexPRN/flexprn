@@ -38,7 +38,6 @@ function FindNursesPage() {
   const [filterMinRating, setFilterMinRating] = useState(0)
   const [filterSpecialties, setFilterSpecialties] = useState([])
   const [filterCerts, setFilterCerts] = useState([])
-  const [showFilters, setShowFilters] = useState(true)
 
   useEffect(() => {
     if (!loading && (!user || !profile)) {
@@ -50,14 +49,9 @@ function FindNursesPage() {
   }, [user, profile, loading])
 
   async function loadData() {
-    // Load all nurses
-    const { data: nurses } = await supabase
-      .from('nurses')
-      .select('*')
-
+    const { data: nurses } = await supabase.from('nurses').select('*')
     setAllNurses(nurses || [])
 
-    // Load certifications for each nurse
     if (nurses && nurses.length > 0) {
       const nurseIds = nurses.map(n => n.id)
       const { data: certs } = await supabase
@@ -73,14 +67,12 @@ function FindNursesPage() {
       setNurseCerts(certsByNurse)
     }
 
-    // Load my pool
     const { data: pool } = await supabase
       .from('float_pool')
       .select('nurse_id, status')
       .eq('facility_id', profile.id)
     setMyPool(pool || [])
 
-    // Load sent invites
     const { data: invites } = await supabase
       .from('recruitment_invites')
       .select('*')
@@ -116,50 +108,31 @@ function FindNursesPage() {
   }
 
   const filteredNurses = allNurses.filter(nurse => {
-    // Name search
     if (searchName) {
       const fullName = `${nurse.first_name} ${nurse.last_name}`.toLowerCase()
       if (!fullName.includes(searchName.toLowerCase())) return false
     }
-
-    // License type
     if (filterLicenseType !== 'all' && nurse.license_type !== filterLicenseType) return false
-
-    // State
     if (filterState && nurse.license_state?.toLowerCase() !== filterState.toLowerCase()) return false
-
-    // City
     if (filterCity && !nurse.city?.toLowerCase().includes(filterCity.toLowerCase())) return false
-
-    // Experience
     if (filterMinExperience !== 'all') {
       const min = getMinYearsFilter(filterMinExperience)
       if (getYearsAsNumber(nurse.years_experience) < min) return false
     }
-
-    // Reliability
     if (filterMinReliability > 0 && (nurse.reliability_score || 0) < filterMinReliability) return false
-
-    // Rating
     if (filterMinRating > 0 && (nurse.star_rating || 0) < filterMinRating) return false
-
-    // Specialties (nurse must have ALL selected)
     if (filterSpecialties.length > 0) {
       const nurseSpecs = nurse.specialties || []
       if (!filterSpecialties.every(s => nurseSpecs.includes(s))) return false
     }
-
-    // Certifications (nurse must have ALL selected, not expired)
     if (filterCerts.length > 0) {
-      const nurseId = nurse.id
-      const certs = nurseCerts[nurseId] || []
+      const certs = nurseCerts[nurse.id] || []
       const today = new Date()
       const activeCertTypes = certs
         .filter(c => new Date(c.expiration_date) > today)
         .map(c => c.cert_type)
       if (!filterCerts.every(c => activeCertTypes.includes(c))) return false
     }
-
     return true
   })
 
@@ -175,6 +148,8 @@ function FindNursesPage() {
 
   async function sendInvite(nurseId) {
     setSending(true)
+    const targetNurse = allNurses.find(n => n.id === nurseId)
+
     const { error } = await supabase.from('recruitment_invites').insert({
       facility_id: profile.id,
       nurse_id: nurseId,
@@ -185,6 +160,13 @@ function FindNursesPage() {
     if (error) {
       alert('Error: ' + error.message)
     } else {
+      // Send email notification to nurse
+      if (targetNurse?.email) {
+        const { sendEmail, invitationReceivedEmail } = await import('../utils/email')
+        const emailContent = invitationReceivedEmail(targetNurse.first_name, profile.facility_name, inviteMessage)
+        sendEmail(targetNurse.email, emailContent.subject, emailContent.html)
+      }
+
       alert('✓ Invitation sent!')
       setShowInviteModal(null)
       setInviteMessage('')
@@ -225,13 +207,12 @@ function FindNursesPage() {
 
         <div className="profile-header">
           <div>
-            <h1>Find Nurses</h1>
+            <h1>Find Staff</h1>
             <p className="dash-subtitle">Search the platform and recruit nurses to your float pool</p>
           </div>
         </div>
 
         <div className="find-nurses-layout">
-          {/* Filter Sidebar */}
           <aside className="filter-sidebar">
             <div className="filter-header">
               <h3><Filter size={18} /> Filters</h3>
@@ -242,12 +223,7 @@ function FindNursesPage() {
               <label>Search by Name</label>
               <div className="search-input-wrap">
                 <Search size={16} className="search-icon" />
-                <input
-                  type="text"
-                  placeholder="First or last name"
-                  value={searchName}
-                  onChange={(e) => setSearchName(e.target.value)}
-                />
+                <input type="text" placeholder="First or last name" value={searchName} onChange={(e) => setSearchName(e.target.value)} />
               </div>
             </div>
 
@@ -258,29 +234,17 @@ function FindNursesPage() {
                 <option value="RN">RN</option>
                 <option value="LPN">LPN</option>
                 <option value="CNA">CNA</option>
-                <option value="NP">NP</option>
               </select>
             </div>
 
             <div className="filter-group">
               <label>License State</label>
-              <input
-                type="text"
-                placeholder="e.g., KY"
-                value={filterState}
-                onChange={(e) => setFilterState(e.target.value)}
-                maxLength={2}
-              />
+              <input type="text" placeholder="e.g., KY" value={filterState} onChange={(e) => setFilterState(e.target.value)} maxLength={2} />
             </div>
 
             <div className="filter-group">
               <label>City</label>
-              <input
-                type="text"
-                placeholder="e.g., Falmouth"
-                value={filterCity}
-                onChange={(e) => setFilterCity(e.target.value)}
-              />
+              <input type="text" placeholder="e.g., Falmouth" value={filterCity} onChange={(e) => setFilterCity(e.target.value)} />
             </div>
 
             <div className="filter-group">
@@ -296,26 +260,12 @@ function FindNursesPage() {
 
             <div className="filter-group">
               <label>Min Reliability: {filterMinReliability}%</label>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                step="5"
-                value={filterMinReliability}
-                onChange={(e) => setFilterMinReliability(parseInt(e.target.value))}
-              />
+              <input type="range" min="0" max="100" step="5" value={filterMinReliability} onChange={(e) => setFilterMinReliability(parseInt(e.target.value))} />
             </div>
 
             <div className="filter-group">
               <label>Min Rating: {filterMinRating > 0 ? `${filterMinRating}⭐` : 'Any'}</label>
-              <input
-                type="range"
-                min="0"
-                max="5"
-                step="0.5"
-                value={filterMinRating}
-                onChange={(e) => setFilterMinRating(parseFloat(e.target.value))}
-              />
+              <input type="range" min="0" max="5" step="0.5" value={filterMinRating} onChange={(e) => setFilterMinRating(parseFloat(e.target.value))} />
             </div>
 
             <div className="filter-group">
@@ -323,14 +273,8 @@ function FindNursesPage() {
               <p className="filter-hint">Nurse must have ALL selected</p>
               <div className="filter-chips">
                 {SPECIALTIES.map(spec => (
-                  <button
-                    key={spec}
-                    type="button"
-                    className={filterSpecialties.includes(spec) ? 'filter-chip selected' : 'filter-chip'}
-                    onClick={() => toggleFilter('specialties', spec, setFilterSpecialties, filterSpecialties)}
-                  >
-                    {filterSpecialties.includes(spec) && <Check size={12} />}
-                    {spec}
+                  <button key={spec} type="button" className={filterSpecialties.includes(spec) ? 'filter-chip selected' : 'filter-chip'} onClick={() => toggleFilter('specialties', spec, setFilterSpecialties, filterSpecialties)}>
+                    {filterSpecialties.includes(spec) && <Check size={12} />}{spec}
                   </button>
                 ))}
               </div>
@@ -341,21 +285,14 @@ function FindNursesPage() {
               <p className="filter-hint">Active (non-expired) only</p>
               <div className="filter-chips">
                 {CERTS.map(cert => (
-                  <button
-                    key={cert}
-                    type="button"
-                    className={filterCerts.includes(cert) ? 'filter-chip selected' : 'filter-chip'}
-                    onClick={() => toggleFilter('certs', cert, setFilterCerts, filterCerts)}
-                  >
-                    {filterCerts.includes(cert) && <Check size={12} />}
-                    {cert}
+                  <button key={cert} type="button" className={filterCerts.includes(cert) ? 'filter-chip selected' : 'filter-chip'} onClick={() => toggleFilter('certs', cert, setFilterCerts, filterCerts)}>
+                    {filterCerts.includes(cert) && <Check size={12} />}{cert}
                   </button>
                 ))}
               </div>
             </div>
           </aside>
 
-          {/* Results */}
           <main className="results-main">
             <div className="results-header">
               <h2>{filteredNurses.length} nurse{filteredNurses.length !== 1 ? 's' : ''} found</h2>
@@ -421,7 +358,6 @@ function FindNursesPage() {
           </main>
         </div>
 
-        {/* Invite Modal */}
         {showInviteModal && (
           <div className="modal-backdrop" onClick={() => setShowInviteModal(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -433,7 +369,7 @@ function FindNursesPage() {
               </div>
               <p>
                 Send a recruitment invite to <strong>{showInviteModal.first_name} {showInviteModal.last_name}</strong> ({showInviteModal.license_type}).
-                They'll see your invite and can accept to join your float pool directly — skipping the application process.
+                They'll get an email and can accept to join your float pool directly — skipping the application process.
               </p>
               <div className="form-field">
                 <label>Personal Message (optional)</label>

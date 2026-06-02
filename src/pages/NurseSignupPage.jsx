@@ -46,7 +46,7 @@ const AGREEMENTS = [
 
 function NurseSignupPage() {
   const navigate = useNavigate()
-  const [step, setStep] = useState(1) // 1 = basic info, 2 = terms
+  const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [formData, setFormData] = useState({
@@ -92,8 +92,7 @@ function NurseSignupPage() {
       if (authError) throw authError
       if (!authData.user) throw new Error('Account creation failed')
 
-      // Create nurse profile
-      const { data: nurseData, error: profileError } = await supabase.from('nurses').insert({
+      const { error: profileError } = await supabase.from('nurses').insert({
         user_id: authData.user.id,
         first_name: formData.firstName,
         last_name: formData.lastName,
@@ -104,11 +103,10 @@ function NurseSignupPage() {
         license_state: formData.licenseState,
         years_experience: formData.yearsExperience,
         terms_signed: true
-      }).select().single()
+      })
 
       if (profileError) throw profileError
 
-      // Record signed agreements
       const signedAgreements = AGREEMENTS.map(a => ({
         user_id: authData.user.id,
         user_type: 'nurse',
@@ -116,7 +114,12 @@ function NurseSignupPage() {
       }))
       await supabase.from('signed_agreements').insert(signedAgreements)
 
-      alert('Account created! Sign in to complete your profile and set up payment.')
+      // Send welcome email (fire and forget)
+      const { sendEmail, welcomeNurseEmail } = await import('../utils/email')
+      const emailContent = welcomeNurseEmail(formData.firstName)
+      sendEmail(formData.email, emailContent.subject, emailContent.html)
+
+      alert('Account created! Check your email for next steps.')
       navigate('/signin')
     } catch (err) {
       setError(err.message)
