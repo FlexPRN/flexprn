@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LogOut, User, Award, TrendingUp, Building2, Calendar, Star, Clock, Settings, Mail } from 'lucide-react'
+import { LogOut, User, Award, TrendingUp, Building2, Calendar, Star, Clock, Settings, Mail, Menu, X } from 'lucide-react'
 import { useAuth } from '../useAuth'
 import { supabase } from '../supabaseClient'
 
@@ -12,6 +12,7 @@ function NurseDashboardPage() {
   const [openShifts, setOpenShifts] = useState([])
   const [myShifts, setMyShifts] = useState([])
   const [pendingInvitesCount, setPendingInvitesCount] = useState(0)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   useEffect(() => {
     if (!loading && (!user || !profile)) {
@@ -93,13 +94,75 @@ function NurseDashboardPage() {
     }
   }
 
+  function closeMobileNav() {
+    setMobileNavOpen(false)
+  }
+
   if (loading) return <div className="dashboard-loading">Loading...</div>
   if (!profile) return null
 
   return (
     <div className="dashboard">
+      {/* MOBILE NAV STYLES */}
+      <style>{`
+        .mobile-menu-btn { display: none; }
+        .mobile-nav-backdrop { display: none; }
+        @media (max-width: 900px) {
+          .mobile-menu-btn {
+            display: inline-flex !important;
+            align-items: center;
+            background: transparent;
+            border: none;
+            color: #1B3A6B;
+            cursor: pointer;
+            padding: 0.5rem;
+            margin-right: 0.25rem;
+          }
+          .dash-sidebar {
+            position: fixed !important;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 280px;
+            max-width: 80vw;
+            background: white !important;
+            z-index: 1000;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+            box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+            overflow-y: auto;
+            padding: 1.5rem 1rem !important;
+            display: block !important;
+          }
+          .dash-sidebar.mobile-open {
+            transform: translateX(0);
+          }
+          .mobile-nav-backdrop.visible {
+            display: block !important;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 999;
+          }
+          .dash-sidebar nav a {
+            padding: 0.85rem 0.75rem;
+            font-size: 1rem;
+            border-radius: 8px;
+          }
+        }
+      `}</style>
+
       <header className="dash-header">
-        <div className="dash-logo" onClick={() => navigate('/nurse/dashboard')} style={{ cursor: 'pointer' }}>⚡ Flexprn</div>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <button
+            className="mobile-menu-btn"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Open menu"
+          >
+            <Menu size={24} />
+          </button>
+          <div className="dash-logo" onClick={() => navigate('/nurse/dashboard')} style={{ cursor: 'pointer' }}>⚡ Flexprn</div>
+        </div>
         <div className="dash-user">
           <span>Welcome, {profile.first_name}</span>
           <button onClick={signOut} className="signout-btn"><LogOut size={16} /> Sign Out</button>
@@ -107,12 +170,34 @@ function NurseDashboardPage() {
       </header>
 
       <div className="dash-container">
-        <aside className="dash-sidebar">
-          <h2>Dashboard</h2>
+        {/* Mobile backdrop */}
+        <div
+          className={`mobile-nav-backdrop ${mobileNavOpen ? 'visible' : ''}`}
+          onClick={closeMobileNav}
+        ></div>
+
+        <aside className={`dash-sidebar ${mobileNavOpen ? 'mobile-open' : ''}`}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+            <h2 style={{ margin: 0 }}>Dashboard</h2>
+            <button
+              onClick={closeMobileNav}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#64748B',
+                padding: '0.25rem',
+                display: window.innerWidth < 900 ? 'flex' : 'none'
+              }}
+              aria-label="Close menu"
+            >
+              <X size={20} />
+            </button>
+          </div>
           <nav>
-            <a href="#overview" className="active"><User size={18} /> Overview</a>
-            <a href="/nurse/shifts"><Calendar size={18} /> Browse Shifts</a>
-            <a href="/nurse/invites" style={{ position: 'relative' }}>
+            <a href="#overview" className="active" onClick={closeMobileNav}><User size={18} /> Overview</a>
+            <a href="/nurse/shifts" onClick={closeMobileNav}><Calendar size={18} /> Browse Shifts</a>
+            <a href="/nurse/invites" onClick={closeMobileNav} style={{ position: 'relative' }}>
               <Mail size={18} /> Invites
               {pendingInvitesCount > 0 && (
                 <span style={{
@@ -133,9 +218,9 @@ function NurseDashboardPage() {
                 </span>
               )}
             </a>
-            <a href="#pools"><Building2 size={18} /> My Float Pools</a>
-            <a href="#facilities"><Building2 size={18} /> Find Facilities</a>
-            <a href="/nurse/profile" style={{ color: '#0A7E8C', fontWeight: 600 }}><Settings size={18} /> Edit My Profile</a>
+            <a href="#pools" onClick={closeMobileNav}><Building2 size={18} /> My Float Pools</a>
+            <a href="#facilities" onClick={closeMobileNav}><Building2 size={18} /> Find Facilities</a>
+            <a href="/nurse/profile" onClick={closeMobileNav} style={{ color: '#0A7E8C', fontWeight: 600 }}><Settings size={18} /> Edit My Profile</a>
           </nav>
         </aside>
 
