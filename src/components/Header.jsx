@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom'
-import { Zap, LayoutDashboard, LogOut } from 'lucide-react'
+import { Zap, LayoutDashboard, LogOut, User } from 'lucide-react'
 import { useAuth } from '../useAuth'
 
 function Header() {
@@ -13,8 +13,26 @@ function Header() {
 
   // Determine where Dashboard should link
   let dashboardPath = null
-  if (userType === 'nurse') dashboardPath = '/nurse/dashboard'
-  else if (userType === 'facility' || userType === 'facility_member') dashboardPath = '/facility/dashboard'
+  let displayName = ''
+  if (userType === 'nurse') {
+    dashboardPath = '/nurse/dashboard'
+    displayName = profile?.first_name || ''
+  } else if (userType === 'facility' || userType === 'facility_member') {
+    dashboardPath = '/facility/dashboard'
+    displayName = profile?.facility_name || profile?.contact_first_name || ''
+  }
+
+  const linkStyle = {
+    color: 'inherit',
+    textDecoration: 'none',
+    padding: '0.5rem 0.75rem',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    fontSize: '0.95rem',
+    fontWeight: 500,
+    cursor: 'pointer'
+  }
 
   return (
     <header className="site-header">
@@ -22,6 +40,7 @@ function Header() {
         <Zap className="logo-icon" size={24} />
         <span>Flexprn</span>
       </Link>
+
       <nav className="nav">
         {!user && !loading && (
           <>
@@ -33,23 +52,34 @@ function Header() {
 
         {user && !loading && (
           <>
-            {dashboardPath && (
-              <Link to={dashboardPath} className="signin-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-                <LayoutDashboard size={16} /> Dashboard
-              </Link>
-            )}
-            <button
-              onClick={handleSignOut}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'inherit',
-                cursor: 'pointer',
-                font: 'inherit',
+            {displayName && (
+              <span style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '0.4rem',
-                padding: '0.5rem 0.75rem'
+                color: '#64748B',
+                fontSize: '0.9rem',
+                padding: '0.5rem 0.5rem'
+              }}>
+                <User size={16} />
+                {displayName}
+              </span>
+            )}
+
+            {dashboardPath && (
+              <Link to={dashboardPath} style={linkStyle}>
+                <LayoutDashboard size={16} /> Dashboard
+              </Link>
+            )}
+
+            <button
+              onClick={handleSignOut}
+              style={{
+                ...linkStyle,
+                background: 'transparent',
+                border: 'none',
+                font: 'inherit',
+                color: '#DC2626'
               }}
             >
               <LogOut size={16} /> Sign Out
