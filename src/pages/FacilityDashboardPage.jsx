@@ -1,22 +1,20 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LogOut, Building2, Users, Calendar, Plus, Check, X, Clock, Eye, Settings, Search } from 'lucide-react'
+import { LogOut, Building2, Users, Calendar, Plus, Check, X, Clock, Eye, Settings, Search, Shield } from 'lucide-react'
 import { useAuth } from '../useAuth'
+import { useFacilityMember } from '../useFacilityMember'
 import { supabase } from '../supabaseClient'
 import {
-  SPECIALTIES,
-  CERTS,
-  ROLES,
-  ROLE_PAY_GUIDE,
-  getPlatformFee,
-  getBillRate,
-  getSpecialtyTier,
-  getSpecialtyTierLabel
+  SPECIALTIES, CERTS, ROLES, ROLE_PAY_GUIDE,
+  getPlatformFee, getBillRate, getSpecialtyTier, getSpecialtyTierLabel
 } from '../constants/specialties'
+import { ROLE_LABELS, canUserPostShift } from '../constants/permissions'
 
 function FacilityDashboardPage() {
   const navigate = useNavigate()
-  const { user, profile, loading, signOut } = useAuth()
+  const { user, signOut } = useAuth()
+  const { member, role, permissions, facility, loading } = useFacilityMember()
+
   const [floatPool, setFloatPool] = useState([])
   const [shifts, setShifts] = useState([])
   const [showShiftForm, setShowShiftForm] = useState(false)
@@ -30,17 +28,17 @@ function FacilityDashboardPage() {
   })
 
   useEffect(() => {
-    if (!loading && (!user || !profile)) navigate('/signin')
-    if (profile) { loadFloatPool(); loadShifts() }
-  }, [user, profile, loading])
+    if (!loading && !member) navigate('/signin')
+    if (facility) { loadFloatPool(); loadShifts() }
+  }, [member, facility, loading])
 
   async function loadFloatPool() {
-    const { data } = await supabase.from('float_pool').select('*, nurses(id, first_name, last_name, license_type, license_state, years_experience, reliability_score, star_rating, specialties)').eq('facility_id', profile.id)
+    const { data } = await supabase.from('float_pool').select('*, nurses(id, first_name, last_name, license_type, license_state, years_experience, reliability_score, star_rating, specialties)').eq('facility_id', facility.id)
     setFloatPool(data || [])
   }
 
   async function loadShifts() {
-    const { data } = await supabase.from('shifts').select('*, nurses:assigned_nurse_id(first_name, last_name, license_type)').eq('facility_id', profile.id).order('shift_date', { ascending: false })
+    const { data } = await supabase.from('shifts').select('*, nurses:assigned_nurse_id(first_name, last_name, license_type)').eq('facility_id', facility.id).order('shift_date', { ascending: false })
     setShifts(data || [])
   }
 
@@ -71,14 +69,25 @@ function FacilityDashboardPage() {
     let hours = (end - start) / (1000 * 60 * 60)
     if (hours <= 0) hours += 24
     const payRate = parseFloat(shiftForm.nurse_pay_rate)
-    const allDates = [shiftForm.shift_date, ...shiftForm.additional_dates.filter(d => d)]
 
-    // Calculate platform fee based on role + specialty + urgency
     const platformFee = getPlatformFee(shiftForm.required_role, shiftForm.specialty, shiftForm.urgency)
     const billRate = payRate + platformFee
 
+    // PERMISSION CHECK
+    const check = canUserPostShift({
+      role,
+      urgency: shiftForm.urgency,
+      billRate,
+      maxSupervisorBillRate: facility.max_supervisor_bill_rate || 90
+    })
+    if (!check.allowed) {
+      alert('⛔ ' + check.reason)
+      return
+    }
+
+    const allDates = [shiftForm.shift_date, ...shiftForm.additional_dates.filter(d => d)]
     const toInsert = allDates.map(date => ({
-      facility_id: profile.id,
+      facility_id: facility.id,
       unit: shiftForm.unit,
       specialty: shiftForm.specialty,
       shift_date: date,
@@ -100,7 +109,10 @@ function FacilityDashboardPage() {
       dress_code: shiftForm.dress_code || null,
       parking_info: shiftForm.parking_info || null,
       unit_supervisor: shiftForm.unit_supervisor || null,
-      notes: shiftForm.notes || null
+      notes: shiftForm.notes || null,
+      posted_by_user_id: user.id,
+      posted_by_name: `${member.first_name} ${member.last_name}`,
+      posted_by_role: role
     }))
 
     const { error } = await supabase.from('shifts').insert(toInsert)
@@ -120,23 +132,20 @@ function FacilityDashboardPage() {
   }
 
   if (loading) return <div className="dashboard-loading">Loading...</div>
-  if (!profile) return null
+  if (!facility || !member) return null
 
   const pendingNurses = floatPool.filter(p => p.status === 'pending')
   const approvedNurses = floatPool.filter(p => p.status === 'approved')
   const openShifts = shifts.filter(s => s.status === 'open')
   const completedShifts = shifts.filter(s => s.status === 'completed')
-
   const payGuide = ROLE_PAY_GUIDE[shiftForm.required_role] || { min: 0, max: 100, typical: 0 }
 
-  // Live pricing calculations for the form preview
+  // Live pricing
   const livePlatformFee = getPlatformFee(shiftForm.required_role, shiftForm.specialty, shiftForm.urgency)
   const livePayRate = parseFloat(shiftForm.nurse_pay_rate) || 0
   const liveBillRate = livePayRate + livePlatformFee
   const liveTier = shiftForm.specialty ? getSpecialtyTier(shiftForm.specialty) : null
   const liveTierLabel = shiftForm.specialty ? getSpecialtyTierLabel(shiftForm.specialty) : null
-
-  // Estimate shift duration for total cost preview
   let liveHours = 0
   if (shiftForm.start_time && shiftForm.end_time) {
     const s = new Date(`2000-01-01T${shiftForm.start_time}`)
@@ -145,12 +154,17 @@ function FacilityDashboardPage() {
     if (liveHours <= 0) liveHours += 24
   }
 
+  // Check if current form values would be blocked
+  const formCheck = shiftForm.specialty && shiftForm.required_role && livePayRate > 0
+    ? canUserPostShift({ role, urgency: shiftForm.urgency, billRate: liveBillRate, maxSupervisorBillRate: facility.max_supervisor_bill_rate || 90 })
+    : { allowed: true }
+
   return (
     <div className="dashboard">
       <header className="dash-header">
         <div className="dash-logo" onClick={() => navigate('/facility/dashboard')} style={{ cursor: 'pointer' }}>⚡ Flexprn</div>
         <div className="dash-user">
-          <span>{profile.facility_name}</span>
+          <span>{facility.facility_name} · <span style={{ fontSize: '0.85rem', color: '#0A7E8C' }}>{ROLE_LABELS[role]}</span></span>
           <button onClick={signOut} className="signout-btn"><LogOut size={16} /> Sign Out</button>
         </div>
       </header>
@@ -161,17 +175,22 @@ function FacilityDashboardPage() {
           <nav>
             <a href="#overview" className="active"><Building2 size={18} /> Overview</a>
             <a href="#shifts"><Calendar size={18} /> Shifts</a>
-            <a href="#pool"><Users size={18} /> Float Pool</a>
-            <a href="#pending"><Clock size={18} /> Pending ({pendingNurses.length})</a>
+            {permissions.canManagePool && <a href="#pool"><Users size={18} /> Float Pool</a>}
+            {permissions.canApprovePool && <a href="#pending"><Clock size={18} /> Pending ({pendingNurses.length})</a>}
             <a href="/facility/find-nurses" style={{ color: '#0A7E8C', fontWeight: 600 }}><Search size={18} /> Find Staff</a>
-            <a href="/facility/profile" style={{ color: '#0A7E8C', fontWeight: 600 }}><Settings size={18} /> Facility Settings</a>
+            {permissions.canManageTeam && (
+              <a href="/facility/team" style={{ color: '#0A7E8C', fontWeight: 600 }}><Shield size={18} /> Team</a>
+            )}
+            {permissions.canEditFacility && (
+              <a href="/facility/profile" style={{ color: '#0A7E8C', fontWeight: 600 }}><Settings size={18} /> Facility Settings</a>
+            )}
           </nav>
         </aside>
 
         <main className="dash-main">
           <section id="overview" className="dash-section">
-            <h1>{profile.facility_name}</h1>
-            <p className="dash-subtitle">{profile.facility_type} · {profile.city}, {profile.state}</p>
+            <h1>{facility.facility_name}</h1>
+            <p className="dash-subtitle">{facility.facility_type} · {facility.city}, {facility.state} · You're logged in as {ROLE_LABELS[role]}</p>
             <div className="stat-cards">
               <div className="dash-stat"><Users size={24} /><div className="dash-stat-value">{approvedNurses.length}</div><div className="dash-stat-label">Approved Staff</div></div>
               <div className="dash-stat"><Clock size={24} /><div className="dash-stat-value">{pendingNurses.length}</div><div className="dash-stat-label">Pending Applications</div></div>
@@ -183,13 +202,21 @@ function FacilityDashboardPage() {
           <section id="shifts" className="dash-section">
             <div className="section-head">
               <h2>Shifts</h2>
-              <button className="primary-btn" onClick={() => setShowShiftForm(!showShiftForm)}><Plus size={18} /> Post New Shift</button>
+              {permissions.canPostShifts && (
+                <button className="primary-btn" onClick={() => setShowShiftForm(!showShiftForm)}><Plus size={18} /> Post New Shift</button>
+              )}
             </div>
 
-            {showShiftForm && (
+            {!permissions.canPostAnyUrgency && permissions.canPostShifts && (
+              <div style={{ background: '#FEF9F0', border: '1px solid #FBBF24', borderRadius: '8px', padding: '0.75rem', marginBottom: '1rem', fontSize: '0.9rem', color: '#92400E' }}>
+                <Shield size={16} style={{ verticalAlign: 'middle', marginRight: '0.4rem' }} />
+                As a {ROLE_LABELS[role]}, you can post urgent/critical shifts only, with a bill rate cap of ${facility.max_supervisor_bill_rate || 90}/hr.
+              </div>
+            )}
+
+            {showShiftForm && permissions.canPostShifts && (
               <form className="shift-form" onSubmit={postShift}>
                 <h3 style={{ color: '#1B3A6B', marginBottom: '1rem' }}>Shift Basics</h3>
-
                 <div className="form-row">
                   <div className="form-field">
                     <label>Unit / Department *</label>
@@ -203,7 +230,6 @@ function FacilityDashboardPage() {
                     </select>
                   </div>
                 </div>
-
                 <div className="form-row">
                   <div className="form-field">
                     <label>Role Required *</label>
@@ -220,7 +246,7 @@ function FacilityDashboardPage() {
                   <div className="form-field">
                     <label>Urgency</label>
                     <select value={shiftForm.urgency} onChange={(e) => setShiftForm({...shiftForm, urgency: e.target.value})}>
-                      <option value="standard">Standard (&gt;48 hr notice)</option>
+                      {permissions.canPostAnyUrgency && <option value="standard">Standard (&gt;48 hr notice)</option>}
                       <option value="urgent">Urgent (&lt;48 hr) — +$2/hr</option>
                       <option value="critical">Critical/Stat (&lt;24 hr) — +$4/hr</option>
                     </select>
@@ -249,7 +275,6 @@ function FacilityDashboardPage() {
                     </button>
                   ))}
                 </div>
-
                 <h3 style={{ color: '#1B3A6B', marginBottom: '0.5rem' }}>Preferred Certifications</h3>
                 <div className="specialty-grid" style={{ marginBottom: '1.5rem' }}>
                   {CERTS.map(c => (
@@ -263,84 +288,30 @@ function FacilityDashboardPage() {
                 <div className="form-field">
                   <label>Nurse Pay Rate ($/hour) *</label>
                   <input type="number" step="0.50" placeholder={`Typical ${shiftForm.required_role}: $${payGuide.typical}/hr`} value={shiftForm.nurse_pay_rate} onChange={(e) => setShiftForm({...shiftForm, nurse_pay_rate: e.target.value})} required />
-                  <span className="form-hint">
-                    Suggested {shiftForm.required_role} range: ${payGuide.min}-${payGuide.max}/hr
-                  </span>
+                  <span className="form-hint">Suggested {shiftForm.required_role} range: ${payGuide.min}-${payGuide.max}/hr</span>
                 </div>
 
-                {/* ============ LIVE PRICING BREAKDOWN ============ */}
                 {shiftForm.specialty && shiftForm.required_role && (
-                  <div style={{
-                    background: '#f0f7f8',
-                    border: '2px solid #0A7E8C',
-                    borderRadius: '8px',
-                    padding: '1.25rem',
-                    marginTop: '1rem',
-                    marginBottom: '1rem'
-                  }}>
+                  <div style={{ background: '#f0f7f8', border: '2px solid #0A7E8C', borderRadius: '8px', padding: '1.25rem', marginTop: '1rem', marginBottom: '1rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                       <h4 style={{ color: '#1B3A6B', margin: 0, fontSize: '1.05rem' }}>💰 Your Pricing Breakdown</h4>
-                      <span style={{
-                        background: liveTier === 'PREMIUM' ? '#1B3A6B' :
-                                    liveTier === 'SPECIALTY' ? '#0A7E8C' :
-                                    liveTier === 'MID' ? '#15803D' : '#6b7280',
-                        color: 'white',
-                        padding: '0.25rem 0.75rem',
-                        borderRadius: '12px',
-                        fontSize: '0.8rem',
-                        fontWeight: 600
-                      }}>
-                        {liveTierLabel} Tier
-                      </span>
+                      <span style={{ background: liveTier === 'PREMIUM' ? '#1B3A6B' : liveTier === 'SPECIALTY' ? '#0A7E8C' : liveTier === 'MID' ? '#15803D' : '#6b7280', color: 'white', padding: '0.25rem 0.75rem', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 600 }}>{liveTierLabel} Tier</span>
                     </div>
-
                     <div style={{ display: 'grid', gap: '0.4rem', fontSize: '0.95rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Nurse pay rate:</span>
-                        <strong>${livePayRate.toFixed(2)}/hr</strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#0A7E8C' }}>
-                        <span>
-                          Flexprn platform fee
-                          {shiftForm.urgency === 'urgent' && ' (incl. +$2 urgent)'}
-                          {shiftForm.urgency === 'critical' && ' (incl. +$4 critical)'}:
-                        </span>
-                        <strong>+${livePlatformFee.toFixed(2)}/hr</strong>
-                      </div>
-                      <div style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        borderTop: '1px solid #0A7E8C',
-                        paddingTop: '0.5rem',
-                        marginTop: '0.25rem',
-                        fontSize: '1.05rem',
-                        color: '#1B3A6B'
-                      }}>
-                        <span><strong>Your total bill rate:</strong></span>
-                        <strong>${liveBillRate.toFixed(2)}/hr</strong>
-                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Nurse pay rate:</span><strong>${livePayRate.toFixed(2)}/hr</strong></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#0A7E8C' }}><span>Flexprn platform fee{shiftForm.urgency === 'urgent' && ' (incl. +$2 urgent)'}{shiftForm.urgency === 'critical' && ' (incl. +$4 critical)'}:</span><strong>+${livePlatformFee.toFixed(2)}/hr</strong></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #0A7E8C', paddingTop: '0.5rem', marginTop: '0.25rem', fontSize: '1.05rem', color: '#1B3A6B' }}><span><strong>Your total bill rate:</strong></span><strong>${liveBillRate.toFixed(2)}/hr</strong></div>
                       {liveHours > 0 && livePayRate > 0 && (
-                        <div style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          marginTop: '0.5rem',
-                          padding: '0.5rem',
-                          background: 'white',
-                          borderRadius: '6px',
-                          fontSize: '0.95rem'
-                        }}>
-                          <span>Total for one {liveHours}-hr shift:</span>
-                          <strong style={{ color: '#1B3A6B' }}>${(liveBillRate * liveHours).toFixed(2)}</strong>
-                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', padding: '0.5rem', background: 'white', borderRadius: '6px', fontSize: '0.95rem' }}><span>Total for one {liveHours}-hr shift:</span><strong style={{ color: '#1B3A6B' }}>${(liveBillRate * liveHours).toFixed(2)}</strong></div>
                       )}
                     </div>
-
-                    <p style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '0.75rem', marginBottom: 0, fontStyle: 'italic' }}>
-                      Traditional agencies typically mark up 50-100%. Flexprn's flat-fee model saves you money on every shift.
-                    </p>
+                    {!formCheck.allowed && (
+                      <div style={{ background: '#FEE2E2', border: '1px solid #DC2626', borderRadius: '6px', padding: '0.6rem', marginTop: '0.75rem', color: '#991B1B', fontSize: '0.85rem' }}>
+                        ⛔ {formCheck.reason}
+                      </div>
+                    )}
                   </div>
                 )}
-                {/* ============ END PRICING BREAKDOWN ============ */}
 
                 <h3 style={{ color: '#1B3A6B', marginTop: '1.5rem', marginBottom: '1rem' }}>Onsite Details</h3>
                 <div className="form-field"><label>Unit Supervisor</label><input type="text" placeholder="e.g., Sarah Johnson, RN — Charge Nurse" value={shiftForm.unit_supervisor} onChange={(e) => setShiftForm({...shiftForm, unit_supervisor: e.target.value})} /></div>
@@ -349,7 +320,7 @@ function FacilityDashboardPage() {
                 <div className="form-field"><label>Notes</label><textarea value={shiftForm.notes} onChange={(e) => setShiftForm({...shiftForm, notes: e.target.value})} /></div>
 
                 <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
-                  <button type="submit" className="primary-btn">Post Shift{shiftForm.additional_dates.filter(d => d).length > 0 && `s (${shiftForm.additional_dates.filter(d => d).length + 1})`}</button>
+                  <button type="submit" className="primary-btn" disabled={!formCheck.allowed}>Post Shift{shiftForm.additional_dates.filter(d => d).length > 0 && `s (${shiftForm.additional_dates.filter(d => d).length + 1})`}</button>
                   <button type="button" className="secondary-btn" onClick={() => setShowShiftForm(false)}>Cancel</button>
                 </div>
               </form>
@@ -366,6 +337,11 @@ function FacilityDashboardPage() {
                       </h3>
                       <p>{shift.unit} · {new Date(shift.shift_date).toLocaleDateString()} · {shift.start_time.slice(0,5)}-{shift.end_time.slice(0,5)}</p>
                       <p className="shift-pay">${shift.nurse_pay_rate}/hr nurse · ${shift.bill_rate}/hr bill</p>
+                      {shift.posted_by_name && (
+                        <p style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '0.3rem' }}>
+                          Posted by: {shift.posted_by_name} ({ROLE_LABELS[shift.posted_by_role] || shift.posted_by_role})
+                        </p>
+                      )}
                       {shift.nurses && <p style={{ color: '#0A7E8C', fontWeight: 600, marginTop: '0.4rem' }}>✓ Assigned: {shift.nurses.first_name} {shift.nurses.last_name}</p>}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-end' }}>
@@ -379,47 +355,51 @@ function FacilityDashboardPage() {
             )}
           </section>
 
-          <section id="pending" className="dash-section">
-            <h2>Pending Applications ({pendingNurses.length})</h2>
-            {pendingNurses.length === 0 ? <p className="empty-state">No pending applications.</p> : (
-              <div className="pool-list">
-                {pendingNurses.map(p => (
-                  <div key={p.id} className="pool-card">
-                    <div>
-                      <h3>{p.nurses?.first_name} {p.nurses?.last_name}</h3>
-                      <p>{p.nurses?.license_type} · {p.nurses?.license_state} · {p.nurses?.years_experience} years</p>
-                      <p>Reliability: {p.nurses?.reliability_score}%</p>
+          {permissions.canApprovePool && (
+            <section id="pending" className="dash-section">
+              <h2>Pending Applications ({pendingNurses.length})</h2>
+              {pendingNurses.length === 0 ? <p className="empty-state">No pending applications.</p> : (
+                <div className="pool-list">
+                  {pendingNurses.map(p => (
+                    <div key={p.id} className="pool-card">
+                      <div>
+                        <h3>{p.nurses?.first_name} {p.nurses?.last_name}</h3>
+                        <p>{p.nurses?.license_type} · {p.nurses?.license_state} · {p.nurses?.years_experience} years</p>
+                        <p>Reliability: {p.nurses?.reliability_score}%</p>
+                      </div>
+                      <div className="approve-actions">
+                        <button className="secondary-btn small-btn" onClick={() => navigate(`/facility/nurse/${p.nurses?.id}`)}><Eye size={16} /> View</button>
+                        <button className="approve-btn" onClick={() => approveNurse(p.id)}><Check size={16} /> Approve</button>
+                        <button className="deny-btn" onClick={() => denyNurse(p.id)}><X size={16} /> Deny</button>
+                      </div>
                     </div>
-                    <div className="approve-actions">
-                      <button className="secondary-btn small-btn" onClick={() => navigate(`/facility/nurse/${p.nurses?.id}`)}><Eye size={16} /> View</button>
-                      <button className="approve-btn" onClick={() => approveNurse(p.id)}><Check size={16} /> Approve</button>
-                      <button className="deny-btn" onClick={() => denyNurse(p.id)}><X size={16} /> Deny</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
 
-          <section id="pool" className="dash-section">
-            <h2>Your Float Pool ({approvedNurses.length})</h2>
-            {approvedNurses.length === 0 ? <p className="empty-state">No approved staff yet.</p> : (
-              <div className="pool-list">
-                {approvedNurses.map(p => (
-                  <div key={p.id} className="pool-card">
-                    <div>
-                      <h3>{p.nurses?.first_name} {p.nurses?.last_name}</h3>
-                      <p>{p.nurses?.license_type} · {p.nurses?.years_experience} years · {p.nurses?.reliability_score}% reliability</p>
+          {permissions.canManagePool && (
+            <section id="pool" className="dash-section">
+              <h2>Your Float Pool ({approvedNurses.length})</h2>
+              {approvedNurses.length === 0 ? <p className="empty-state">No approved staff yet.</p> : (
+                <div className="pool-list">
+                  {approvedNurses.map(p => (
+                    <div key={p.id} className="pool-card">
+                      <div>
+                        <h3>{p.nurses?.first_name} {p.nurses?.last_name}</h3>
+                        <p>{p.nurses?.license_type} · {p.nurses?.years_experience} years · {p.nurses?.reliability_score}% reliability</p>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <span className="status-badge status-approved">Approved</span>
+                        <button className="secondary-btn small-btn" onClick={() => navigate(`/facility/nurse/${p.nurses?.id}`)}><Eye size={16} /> View</button>
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      <span className="status-badge status-approved">Approved</span>
-                      <button className="secondary-btn small-btn" onClick={() => navigate(`/facility/nurse/${p.nurses?.id}`)}><Eye size={16} /> View</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
         </main>
       </div>
     </div>

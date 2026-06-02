@@ -13,10 +13,12 @@ import NurseShiftsPage from './pages/NurseShiftsPage'
 import NurseInvitesPage from './pages/NurseInvitesPage'
 import FacilityDashboardPage from './pages/FacilityDashboardPage'
 import FacilityProfilePage from './pages/FacilityProfilePage'
+import FacilityTeamPage from './pages/FacilityTeamPage'
 import NursePoolDetailPage from './pages/NursePoolDetailPage'
 import FindNursesPage from './pages/FindNursesPage'
 import ShiftDetailPage from './pages/ShiftDetailPage'
 import AdminDashboardPage from './pages/AdminDashboardPage'
+import AcceptInvitationPage from './pages/AcceptInvitationPage'
 import './App.css'
 
 function App() {
@@ -30,12 +32,14 @@ function App() {
       <Route path="/signin" element={<SignInPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/accept-invitation" element={<AcceptInvitationPage />} />
       <Route path="/nurse/dashboard" element={<NurseDashboardPage />} />
       <Route path="/nurse/profile" element={<NurseProfilePage />} />
       <Route path="/nurse/shifts" element={<NurseShiftsPage />} />
       <Route path="/nurse/invites" element={<NurseInvitesPage />} />
       <Route path="/facility/dashboard" element={<FacilityDashboardPage />} />
       <Route path="/facility/profile" element={<FacilityProfilePage />} />
+      <Route path="/facility/team" element={<FacilityTeamPage />} />
       <Route path="/facility/nurse/:nurseId" element={<NursePoolDetailPage />} />
       <Route path="/facility/find-nurses" element={<FindNursesPage />} />
       <Route path="/shift/:shiftId" element={<ShiftDetailPage />} />

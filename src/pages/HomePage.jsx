@@ -5,6 +5,7 @@ import StatsSection from '../components/StatsSection'
 import HowItWorksSection from '../components/HowItWorksSection'
 import AboutSection from '../components/AboutSection'
 import FinalCTA from '../components/FinalCTA'
+import InstallAppBanner from '../components/InstallAppBanner'
 
 function HomePage() {
   return (
@@ -18,6 +19,7 @@ function HomePage() {
         <FinalCTA />
       </main>
       <Footer />
+      <InstallAppBanner />
     </div>
   )
 }

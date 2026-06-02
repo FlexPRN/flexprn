@@ -1,0 +1,55 @@
+{
+  "name": "Flexprn — Healthcare Staffing",
+  "short_name": "Flexprn",
+  "description": "Same-day PRN nursing staffing built by ED nurses. Connect facilities with credentialed nurses on a flat-fee platform.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fafbfc",
+  "theme_color": "#1B3A6B",
+  "categories": ["medical", "business", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Browse Shifts",
+      "url": "/nurse/shifts",
+      "description": "View available shifts"
+    },
+    {
+      "name": "My Invites",
+      "url": "/nurse/invites",
+      "description": "Check pending invitations"
+    },
+    {
+      "name": "Post a Shift",
+      "url": "/facility/dashboard",
+      "description": "Post a new shift"
+    }
+  ]
+}
