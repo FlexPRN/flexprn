@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LogOut, Building2, Users, Calendar, Plus, Check, X, Clock, Eye, Settings, Search, Shield } from 'lucide-react'
+import { LogOut, Building2, Users, Calendar, Plus, Check, X, Clock, Eye, Settings, Search, Shield, Menu } from 'lucide-react'
 import { useAuth } from '../useAuth'
 import { useFacilityMember } from '../useFacilityMember'
 import { supabase } from '../supabaseClient'
@@ -18,6 +18,7 @@ function FacilityDashboardPage() {
   const [floatPool, setFloatPool] = useState([])
   const [shifts, setShifts] = useState([])
   const [showShiftForm, setShowShiftForm] = useState(false)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [shiftForm, setShiftForm] = useState({
     unit: '', specialty: '', shift_date: '', additional_dates: [],
     start_time: '', end_time: '', shift_category: 'day',
@@ -73,7 +74,6 @@ function FacilityDashboardPage() {
     const platformFee = getPlatformFee(shiftForm.required_role, shiftForm.specialty, shiftForm.urgency)
     const billRate = payRate + platformFee
 
-    // PERMISSION CHECK
     const check = canUserPostShift({
       role,
       urgency: shiftForm.urgency,
@@ -131,6 +131,10 @@ function FacilityDashboardPage() {
     loadShifts()
   }
 
+  function closeMobileNav() {
+    setMobileNavOpen(false)
+  }
+
   if (loading) return <div className="dashboard-loading">Loading...</div>
   if (!facility || !member) return null
 
@@ -140,7 +144,6 @@ function FacilityDashboardPage() {
   const completedShifts = shifts.filter(s => s.status === 'completed')
   const payGuide = ROLE_PAY_GUIDE[shiftForm.required_role] || { min: 0, max: 100, typical: 0 }
 
-  // Live pricing
   const livePlatformFee = getPlatformFee(shiftForm.required_role, shiftForm.specialty, shiftForm.urgency)
   const livePayRate = parseFloat(shiftForm.nurse_pay_rate) || 0
   const liveBillRate = livePayRate + livePlatformFee
@@ -154,15 +157,72 @@ function FacilityDashboardPage() {
     if (liveHours <= 0) liveHours += 24
   }
 
-  // Check if current form values would be blocked
   const formCheck = shiftForm.specialty && shiftForm.required_role && livePayRate > 0
     ? canUserPostShift({ role, urgency: shiftForm.urgency, billRate: liveBillRate, maxSupervisorBillRate: facility.max_supervisor_bill_rate || 90 })
     : { allowed: true }
 
   return (
     <div className="dashboard">
+      {/* MOBILE NAV STYLES - injected here so we don't need App.css changes */}
+      <style>{`
+        .mobile-menu-btn { display: none; }
+        .mobile-nav-backdrop { display: none; }
+        @media (max-width: 900px) {
+          .mobile-menu-btn {
+            display: inline-flex !important;
+            align-items: center;
+            background: transparent;
+            border: none;
+            color: #1B3A6B;
+            cursor: pointer;
+            padding: 0.5rem;
+            margin-right: 0.25rem;
+          }
+          .dash-sidebar {
+            position: fixed !important;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 280px;
+            max-width: 80vw;
+            background: white !important;
+            z-index: 1000;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+            box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+            overflow-y: auto;
+            padding: 1.5rem 1rem !important;
+            display: block !important;
+          }
+          .dash-sidebar.mobile-open {
+            transform: translateX(0);
+          }
+          .mobile-nav-backdrop.visible {
+            display: block !important;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 999;
+          }
+          .dash-sidebar nav a {
+            padding: 0.85rem 0.75rem;
+            font-size: 1rem;
+            border-radius: 8px;
+          }
+        }
+      `}</style>
+
       <header className="dash-header">
-        <div className="dash-logo" onClick={() => navigate('/facility/dashboard')} style={{ cursor: 'pointer' }}>⚡ Flexprn</div>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <button
+            className="mobile-menu-btn"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Open menu"
+          >
+            <Menu size={24} />
+          </button>
+          <div className="dash-logo" onClick={() => navigate('/facility/dashboard')} style={{ cursor: 'pointer' }}>⚡ Flexprn</div>
+        </div>
         <div className="dash-user">
           <span>{facility.facility_name} · <span style={{ fontSize: '0.85rem', color: '#0A7E8C' }}>{ROLE_LABELS[role]}</span></span>
           <button onClick={signOut} className="signout-btn"><LogOut size={16} /> Sign Out</button>
@@ -170,19 +230,41 @@ function FacilityDashboardPage() {
       </header>
 
       <div className="dash-container">
-        <aside className="dash-sidebar">
-          <h2>Dashboard</h2>
+        {/* Backdrop for mobile drawer */}
+        <div
+          className={`mobile-nav-backdrop ${mobileNavOpen ? 'visible' : ''}`}
+          onClick={closeMobileNav}
+        ></div>
+
+        <aside className={`dash-sidebar ${mobileNavOpen ? 'mobile-open' : ''}`}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+            <h2 style={{ margin: 0 }}>Dashboard</h2>
+            <button
+              onClick={closeMobileNav}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#64748B',
+                padding: '0.25rem',
+                display: window.innerWidth < 900 ? 'flex' : 'none'
+              }}
+              aria-label="Close menu"
+            >
+              <X size={20} />
+            </button>
+          </div>
           <nav>
-            <a href="#overview" className="active"><Building2 size={18} /> Overview</a>
-            <a href="#shifts"><Calendar size={18} /> Shifts</a>
-            {permissions.canManagePool && <a href="#pool"><Users size={18} /> Float Pool</a>}
-            {permissions.canApprovePool && <a href="#pending"><Clock size={18} /> Pending ({pendingNurses.length})</a>}
-            <a href="/facility/find-nurses" style={{ color: '#0A7E8C', fontWeight: 600 }}><Search size={18} /> Find Staff</a>
+            <a href="#overview" className="active" onClick={closeMobileNav}><Building2 size={18} /> Overview</a>
+            <a href="#shifts" onClick={closeMobileNav}><Calendar size={18} /> Shifts</a>
+            {permissions.canManagePool && <a href="#pool" onClick={closeMobileNav}><Users size={18} /> Float Pool</a>}
+            {permissions.canApprovePool && <a href="#pending" onClick={closeMobileNav}><Clock size={18} /> Pending ({pendingNurses.length})</a>}
+            <a href="/facility/find-nurses" onClick={closeMobileNav} style={{ color: '#0A7E8C', fontWeight: 600 }}><Search size={18} /> Find Staff</a>
             {permissions.canManageTeam && (
-              <a href="/facility/team" style={{ color: '#0A7E8C', fontWeight: 600 }}><Shield size={18} /> Team</a>
+              <a href="/facility/team" onClick={closeMobileNav} style={{ color: '#0A7E8C', fontWeight: 600 }}><Shield size={18} /> Team</a>
             )}
             {permissions.canEditFacility && (
-              <a href="/facility/profile" style={{ color: '#0A7E8C', fontWeight: 600 }}><Settings size={18} /> Facility Settings</a>
+              <a href="/facility/profile" onClick={closeMobileNav} style={{ color: '#0A7E8C', fontWeight: 600 }}><Settings size={18} /> Facility Settings</a>
             )}
           </nav>
         </aside>
