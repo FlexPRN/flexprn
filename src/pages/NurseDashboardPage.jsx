@@ -1,0 +1,235 @@
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { LogOut, User, Award, TrendingUp, Building2, Calendar, Star, Clock, Settings } from 'lucide-react'
+import { useAuth } from '../useAuth'
+import { supabase } from '../supabaseClient'
+
+function NurseDashboardPage() {
+  const navigate = useNavigate()
+  const { user, profile, loading, signOut } = useAuth()
+  const [facilities, setFacilities] = useState([])
+  const [myPools, setMyPools] = useState([])
+  const [openShifts, setOpenShifts] = useState([])
+  const [myShifts, setMyShifts] = useState([])
+
+  useEffect(() => {
+    if (!loading && (!user || !profile)) {
+      navigate('/signin')
+    }
+    if (profile) {
+      loadFacilities()
+      loadMyPools()
+      loadAvailableShifts()
+      loadMyShifts()
+    }
+  }, [user, profile, loading])
+
+  async function loadFacilities() {
+    const { data } = await supabase.from('facilities').select('id, facility_name, facility_type, city, state')
+    setFacilities(data || [])
+  }
+
+  async function loadMyPools() {
+    const { data } = await supabase.from('float_pool').select('*, facilities(facility_name, city, state)').eq('nurse_id', profile.id)
+    setMyPools(data || [])
+  }
+
+  async function loadAvailableShifts() {
+    const approvedFacilityIds = (await supabase
+      .from('float_pool')
+      .select('facility_id')
+      .eq('nurse_id', profile.id)
+      .eq('status', 'approved')).data?.map(p => p.facility_id) || []
+
+    if (approvedFacilityIds.length === 0) {
+      setOpenShifts([])
+      return
+    }
+
+    const { data } = await supabase
+      .from('shifts')
+      .select('*, facilities(facility_name, city, state)')
+      .eq('status', 'open')
+      .in('facility_id', approvedFacilityIds)
+      .order('shift_date', { ascending: true })
+      .limit(5)
+
+    setOpenShifts(data || [])
+  }
+
+  async function loadMyShifts() {
+    const { data } = await supabase
+      .from('shifts')
+      .select('*, facilities(facility_name)')
+      .eq('assigned_nurse_id', profile.id)
+      .in('status', ['filled', 'in_progress'])
+      .order('shift_date', { ascending: true })
+      .limit(3)
+    setMyShifts(data || [])
+  }
+
+  async function applyToPool(facilityId) {
+    const { error } = await supabase.from('float_pool').insert({
+      nurse_id: profile.id,
+      facility_id: facilityId,
+      status: 'pending'
+    })
+    if (error) {
+      alert('Already applied or error: ' + error.message)
+    } else {
+      alert('Application submitted!')
+      loadMyPools()
+    }
+  }
+
+  if (loading) return <div className="dashboard-loading">Loading...</div>
+  if (!profile) return null
+
+  return (
+    <div className="dashboard">
+      <header className="dash-header">
+        <div className="dash-logo" onClick={() => navigate('/nurse/dashboard')} style={{ cursor: 'pointer' }}>⚡ Flexprn</div>
+        <div className="dash-user">
+          <span>Welcome, {profile.first_name}</span>
+          <button onClick={signOut} className="signout-btn"><LogOut size={16} /> Sign Out</button>
+        </div>
+      </header>
+
+      <div className="dash-container">
+        <aside className="dash-sidebar">
+          <h2>Dashboard</h2>
+          <nav>
+            <a href="#overview" className="active"><User size={18} /> Overview</a>
+            <a href="/nurse/shifts"><Calendar size={18} /> Browse Shifts</a>
+            <a href="#pools"><Building2 size={18} /> My Float Pools</a>
+            <a href="#facilities"><Building2 size={18} /> Find Facilities</a>
+            <a href="/nurse/profile" style={{ color: '#0A7E8C', fontWeight: 600 }}><Settings size={18} /> Edit My Profile</a>
+          </nav>
+        </aside>
+
+        <main className="dash-main">
+          <section id="overview" className="dash-section">
+            <h1>Welcome back, {profile.first_name}!</h1>
+            <p className="dash-subtitle">{profile.license_type} · {profile.license_state} · {profile.years_experience} years experience</p>
+
+            <div className="stat-cards">
+              <div className="dash-stat">
+                <TrendingUp size={24} />
+                <div className="dash-stat-value">{profile.reliability_score}%</div>
+                <div className="dash-stat-label">Reliability Score</div>
+              </div>
+              <div className="dash-stat">
+                <Star size={24} />
+                <div className="dash-stat-value">{profile.star_rating || '—'}</div>
+                <div className="dash-stat-label">Star Rating</div>
+              </div>
+              <div className="dash-stat">
+                <Clock size={24} />
+                <div className="dash-stat-value">{profile.total_shifts_worked}</div>
+                <div className="dash-stat-label">Shifts Completed</div>
+              </div>
+              <div className="dash-stat">
+                <Building2 size={24} />
+                <div className="dash-stat-value">{myPools.filter(p => p.status === 'approved').length}</div>
+                <div className="dash-stat-label">Active Float Pools</div>
+              </div>
+            </div>
+          </section>
+
+          {myShifts.length > 0 && (
+            <section className="dash-section">
+              <div className="section-head">
+                <h2>Upcoming Shifts</h2>
+                <a href="/nurse/shifts" className="forgot-link">View all →</a>
+              </div>
+              <div className="shift-list">
+                {myShifts.map(shift => (
+                  <div key={shift.id} className="shift-card">
+                    <div className="shift-info">
+                      <h3>{shift.facilities?.facility_name}</h3>
+                      <p>{shift.unit} · {new Date(shift.shift_date).toLocaleDateString()} · {shift.start_time.slice(0,5)}-{shift.end_time.slice(0,5)}</p>
+                      <p className="shift-pay">${shift.nurse_pay_rate}/hr · {shift.scheduled_hours} hours</p>
+                    </div>
+                    <span className={`status-badge status-${shift.status}`}>{shift.status}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section id="shifts" className="dash-section">
+            <div className="section-head">
+              <h2>Available Shifts</h2>
+              <a href="/nurse/shifts" className="forgot-link">View all →</a>
+            </div>
+            {openShifts.length === 0 ? (
+              <p className="empty-state">No shifts available right now. Apply to facility float pools to start receiving shifts.</p>
+            ) : (
+              <div className="shift-list">
+                {openShifts.map(shift => (
+                  <div key={shift.id} className="shift-card">
+                    <div className="shift-info">
+                      <h3>{shift.facilities?.facility_name}</h3>
+                      <p>{shift.unit} · {new Date(shift.shift_date).toLocaleDateString()} · {shift.start_time.slice(0,5)}-{shift.end_time.slice(0,5)}</p>
+                      <p className="shift-pay">${shift.nurse_pay_rate}/hr · {shift.scheduled_hours} hours</p>
+                    </div>
+                    <button className="primary-btn" onClick={() => navigate('/nurse/shifts')}>View Details</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section id="pools" className="dash-section">
+            <h2>My Float Pools</h2>
+            {myPools.length === 0 ? (
+              <p className="empty-state">You haven't joined any float pools yet. Browse facilities below.</p>
+            ) : (
+              <div className="pool-list">
+                {myPools.map(pool => (
+                  <div key={pool.id} className="pool-card">
+                    <div>
+                      <h3>{pool.facilities?.facility_name}</h3>
+                      <p>{pool.facilities?.city}, {pool.facilities?.state}</p>
+                    </div>
+                    <span className={`status-badge status-${pool.status}`}>{pool.status}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section id="facilities" className="dash-section">
+            <h2>Find Facilities to Join</h2>
+            {facilities.length === 0 ? (
+              <p className="empty-state">No facilities have signed up yet. Check back soon!</p>
+            ) : (
+              <div className="facility-list">
+                {facilities.map(facility => {
+                  const isApplied = myPools.some(p => p.facility_id === facility.id)
+                  return (
+                    <div key={facility.id} className="facility-card">
+                      <div>
+                        <h3>{facility.facility_name}</h3>
+                        <p>{facility.facility_type} · {facility.city}, {facility.state}</p>
+                      </div>
+                      <button
+                        className="primary-btn"
+                        onClick={() => applyToPool(facility.id)}
+                        disabled={isApplied}
+                      >
+                        {isApplied ? 'Applied' : 'Apply to Pool'}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+        </main>
+      </div>
+    </div>
+  )
+}
+
+export default NurseDashboardPage
