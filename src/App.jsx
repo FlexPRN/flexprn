@@ -11,6 +11,7 @@ import NurseDashboardPage from './pages/NurseDashboardPage'
 import NurseProfilePage from './pages/NurseProfilePage'
 import NurseShiftsPage from './pages/NurseShiftsPage'
 import NurseInvitesPage from './pages/NurseInvitesPage'
+import NurseImmunizationsPage from './pages/NurseImmunizationsPage'
 import FacilityDashboardPage from './pages/FacilityDashboardPage'
 import FacilityProfilePage from './pages/FacilityProfilePage'
 import FacilityTeamPage from './pages/FacilityTeamPage'
@@ -19,6 +20,7 @@ import FindNursesPage from './pages/FindNursesPage'
 import ShiftDetailPage from './pages/ShiftDetailPage'
 import AdminDashboardPage from './pages/AdminDashboardPage'
 import AcceptInvitationPage from './pages/AcceptInvitationPage'
+import ChatPage from './pages/ChatPage'
 import './App.css'
 
 function App() {
@@ -37,9 +39,12 @@ function App() {
       <Route path="/nurse/profile" element={<NurseProfilePage />} />
       <Route path="/nurse/shifts" element={<NurseShiftsPage />} />
       <Route path="/nurse/invites" element={<NurseInvitesPage />} />
+      <Route path="/nurse/immunizations" element={<NurseImmunizationsPage />} />
+      <Route path="/nurse/messages" element={<ChatPage viewerType="nurse" />} />
       <Route path="/facility/dashboard" element={<FacilityDashboardPage />} />
       <Route path="/facility/profile" element={<FacilityProfilePage />} />
       <Route path="/facility/team" element={<FacilityTeamPage />} />
+      <Route path="/facility/messages" element={<ChatPage viewerType="facility" />} />
       <Route path="/facility/nurse/:nurseId" element={<NursePoolDetailPage />} />
       <Route path="/facility/find-nurses" element={<FindNursesPage />} />
       <Route path="/shift/:shiftId" element={<ShiftDetailPage />} />
